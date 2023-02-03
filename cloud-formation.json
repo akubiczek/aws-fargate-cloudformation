@@ -1,0 +1,548 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project's name",
+            "Type": "String",
+            "Default": "abc1",
+            "AllowedPattern": "[a-zA-Z][a-zA-Z0-9-]*"
+        },
+        "Environment": {
+            "Description": "Environment, for example: develop, testing, staging, production",
+            "Type": "String",
+            "Default": "staging",
+            "AllowedPattern": "[a-zA-Z][a-zA-Z0-9-]*"
+        },
+        "DesiredInstancesCount": {
+            "Description": "Number of fargate instances to spin up",
+            "Type": "Number",
+            "Default": "3",
+            "MinValue": "1",
+            "MaxValue": "16"
+        },
+        "CertificateArn": {
+            "Description": "Certificate Arn to be used for HTTPS connections",
+            "Type": "String",
+            "Default": "arn:aws:acm:us-east-2:1234567890:certificate/1234567890-111-222-1234567890"
+        },
+        "VPCId": {
+            "Description": "ID of VPC to use. The stack doesn't create any VPC nor Subnets. It requires existing VPC and Subnets",
+            "Type": "String",
+            "Default": "vpc-1234567890"
+        },
+        "VPCSubnets": {
+            "Type": "CommaDelimitedList",
+            "Default": "subnet-1234567890a,subnet-1234567890b"
+        },
+        "DockerImage": {
+            "Description": "Docker image to be deployed",
+            "Type": "String",
+            "Default": "1234567890.dkr.ecr.us-east-2.amazonaws.com/project-master:latest"
+        }
+    },
+    "Resources": {
+        "LoadBalancerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupName": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "elb"
+                        ]
+                    ]
+                },
+                "GroupDescription": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "elb",
+                            "description"
+                        ]
+                    ]
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 443,
+                        "ToPort": 443,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "FromPort": 80,
+                        "IpProtocol": "tcp",
+                        "ToPort": 80
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": -1,
+                        "FromPort": -1,
+                        "ToPort": -1,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPCId"
+                }
+            }
+        },
+        "ContainerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupName": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "container"
+                        ]
+                    ]
+                },
+                "GroupDescription": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "container",
+                            "description"
+                        ]
+                    ]
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 80,
+                        "ToPort": 80,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 22,
+                        "ToPort": 22,
+                        "CidrIp": "66.111.111.111/32",
+                        "Description": "HQ building A"
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": -1,
+                        "FromPort": -1,
+                        "ToPort": -1,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "VpcId": {
+                    "Ref": "VPCId"
+                }
+            }
+        },
+        "ELBTargetGroup": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "DependsOn": [
+                "ELBLoadBalancer"
+            ],
+            "Properties": {
+                "HealthCheckEnabled": "true",
+                "HealthCheckIntervalSeconds": 10,
+                "HealthCheckPath": "/admin/login",
+                "HealthCheckPort": "traffic-port",
+                "HealthCheckProtocol": "HTTP",
+                "HealthCheckTimeoutSeconds": 5,
+                "HealthyThresholdCount": 5,
+                "Name": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "ecs",
+                            "group"
+                        ]
+                    ]
+                },
+                "Port": 80,
+                "Protocol": "HTTP",
+                "TargetType": "ip",
+                "VpcId": {
+                    "Ref": "VPCId"
+                }
+            }
+        },
+        "ELBLoadBalancer": {
+            "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties": {
+                "Type": "application",
+                "Name": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "ecs",
+                            "elb"
+                        ]
+                    ]
+                },
+                "Scheme": "internet-facing",
+                "IpAddressType": "ipv4",
+                "SecurityGroups": [
+                    {
+                        "Ref": "LoadBalancerSecurityGroup"
+                    }
+                ],
+                "Subnets": {
+                    "Ref": "VPCSubnets"
+                }
+            }
+        },
+        "ELBListener": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "DefaultActions": [
+                    {
+                        "Type": "forward",
+                        "ForwardConfig": {
+                            "TargetGroups": [
+                                {
+                                    "TargetGroupArn": {
+                                        "Ref": "ELBTargetGroup"
+                                    },
+                                    "Weight": 1
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "ELBLoadBalancer"
+                },
+                "Certificates": [
+                    {
+                        "CertificateArn": {
+                            "Ref": "CertificateArn"
+                        }
+                    }
+                ],
+                "Port": 443,
+                "Protocol": "HTTPS"
+            }
+        },
+        "ELBListenerPortRedirect": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "DefaultActions": [
+                    {
+                        "Type": "redirect",
+                        "RedirectConfig": {
+                            "Protocol": "HTTPS",
+                            "Port": 443,
+                            "Host": "#{host}",
+                            "Path": "/#{path}",
+                            "Query": "#{query}",
+                            "StatusCode": "HTTP_301"
+                        }
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "ELBLoadBalancer"
+                },
+                "Port": 80,
+                "Protocol": "HTTP"
+            }
+        },
+        "ECSCluster": {
+            "Type": "AWS::ECS::Cluster",
+            "Properties": {
+                "ClusterName": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "Environment"
+                            },
+                            "cluster"
+                        ]
+                    ]
+                },
+                "ClusterSettings": [
+                    {
+                        "Name": "containerInsights",
+                        "Value": "enabled"
+                    }
+                ]
+            }
+        },
+        "ECSTaskDefinition": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "Cpu": 1024,
+                "Memory": 2048,
+                "NetworkMode": "awsvpc",
+                "RequiresCompatibilities": [
+                    "FARGATE"
+                ],
+                "ExecutionRoleArn": "arn:aws:iam::399047607189:role/ecsTaskExecutionRole",
+                "ContainerDefinitions": [
+                    {
+                        "Name": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    {
+                                        "Ref": "Environment"
+                                    },
+                                    "container"
+                                ]
+                            ]
+                        },
+                        "Image": {
+                            "Ref": "DockerImage"
+                        },
+                        "PortMappings": [
+                            {
+                                "ContainerPort": 80
+                            },
+                            {
+                                "ContainerPort": 22
+                            }
+                        ],
+                        "Essential": "true",
+                        "HealthCheck": {
+                            "Command": [
+                                "CMD-SHELL",
+                                "curl -f http://localhost/admin/login || exit 1"
+                            ],
+                            "Interval": 30,
+                            "Timeout": 5,
+                            "Retries": 3,
+                            "StartPeriod": 15
+                        },
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Fn::Join": [
+                                        "-",
+                                        [
+                                            "ecs",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            }
+                                        ]
+                                    ]
+                                },
+                                "awslogs-region": "us-east-2",
+                                "awslogs-create-group": "true",
+                                "awslogs-stream-prefix": "ecs"
+                            }
+                        },
+                        "Secrets": [
+                            {
+                                "Name": "APP_ENV",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "APP_ENV"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "APP_KEY",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "APP_KEY"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "DB_DATABASE",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "DB_DATABASE"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "DB_HOST",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "DB_HOST"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "DB_PASSWORD",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "DB_PASSWORD"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "DB_PORT",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "DB_PORT"
+                                        ]
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "DB_USERNAME",
+                                "ValueFrom": {
+                                    "Fn::Join": [
+                                        "/",
+                                        [
+                                            "",
+                                            {
+                                                "Ref": "Environment"
+                                            },
+                                            {
+                                                "Ref": "ProjectName"
+                                            },
+                                            "DB_USERNAME"
+                                        ]
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        "ECSService": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": [
+                "ELBListener",
+                "ELBListenerPortRedirect"
+            ],
+            "Properties": {
+                "Cluster": {
+                    "Ref": "ECSCluster"
+                },
+                "DesiredCount": {
+                    "Ref": "DesiredInstancesCount"
+                },
+                "TaskDefinition": {
+                    "Ref": "ECSTaskDefinition"
+                },
+                "LaunchType": "FARGATE",
+                "NetworkConfiguration": {
+                    "AwsvpcConfiguration": {
+                        "AssignPublicIp": "ENABLED",
+                        "SecurityGroups": [
+                            {
+                                "Ref": "ContainerSecurityGroup"
+                            }
+                        ],
+                        "Subnets": {
+                            "Ref": "VPCSubnets"
+                        }
+                    }
+                },
+                "DeploymentConfiguration": {
+                    "DeploymentCircuitBreaker": {
+                        "Enable": "true",
+                        "Rollback": "true"
+                    },
+                    "MaximumPercent": 200,
+                    "MinimumHealthyPercent": 100
+                },
+                "LoadBalancers": [
+                    {
+                        "TargetGroupArn": {
+                            "Ref": "ELBTargetGroup"
+                        },
+                        "ContainerPort": "80",
+                        "ContainerName": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    {
+                                        "Ref": "Environment"
+                                    },
+                                    "container"
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+    }
+}
