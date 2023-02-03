@@ -3,6 +3,8 @@ A CloudFormation template to create an ECS cluster with the Fargate launch type 
 
 It opens port 80 of the container to the world and port 22 to a chosen single IP address.
 
+It also passes some environment variables from AWS Parameter Store to the container (see `Secrets` in the `ContainerDefinitions` section).
+
 ## Prerequisties 
 
 1. An existing VPC and subnets
